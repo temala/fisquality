@@ -84,6 +84,23 @@ export const expensePatterns = pgTable("expense_patterns", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Account types for simulation engine
+export type Account = 'operating' | 'savings' | 'personal' | 'vat';
+
+// Simulation input parameters interface
+export interface SimulationInputs {
+  year: number;
+  fiscalStartMonth: number; // 1-12, typically 1 for calendar year
+  startingBalances: {
+    operating: number;
+    savings: number;
+    personal: number;
+    vat: number;
+  };
+  businessType: string;
+  holidayRegion: string;
+}
+
 // Simulations table to store simulation runs
 export const simulations = pgTable("simulations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -91,6 +108,8 @@ export const simulations = pgTable("simulations", {
   name: text("name").notNull(),
   year: integer("year").notNull(),
   status: varchar("status").default("draft"), // draft, running, completed, failed
+  inputs: jsonb("inputs"), // Store run parameters (SimulationInputs)
+  engineVersion: varchar("engine_version").default("v1"), // Track simulation engine version
   results: jsonb("results"), // Store monthly cash flows and account balances
   totalRevenue: decimal("total_revenue", { precision: 12, scale: 2 }),
   totalExpenses: decimal("total_expenses", { precision: 12, scale: 2 }),
@@ -104,7 +123,7 @@ export const simulations = pgTable("simulations", {
 export const accountBalances = pgTable("account_balances", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   simulationId: varchar("simulation_id").notNull(),
-  accountType: varchar("account_type").notNull(), // asset, revenue, expense, tax
+  accountType: varchar("account_type").notNull(), // operating, savings, personal, vat (Account enum values)
   accountName: text("account_name").notNull(),
   month: integer("month").notNull(), // 1-12
   balance: decimal("balance", { precision: 12, scale: 2 }).notNull(),
@@ -374,6 +393,20 @@ export const insertSimulationSchema = createInsertSchema(simulations).omit({
   id: true,
   createdAt: true,
   completedAt: true,
+}).extend({
+  inputs: z.object({
+    year: z.number().min(2020).max(2030),
+    fiscalStartMonth: z.number().min(1).max(12),
+    startingBalances: z.object({
+      operating: z.number(),
+      savings: z.number(),
+      personal: z.number(),
+      vat: z.number(),
+    }),
+    businessType: z.enum(['freelancer', 'traditional', 'retail', 'consultancy', 'ecommerce', 'restaurant']),
+    holidayRegion: z.string().default('FR'),
+  }).optional(),
+  engineVersion: z.string().default('v1'),
 });
 
 export type UpsertUser = typeof users.$inferInsert;

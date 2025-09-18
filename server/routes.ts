@@ -265,26 +265,157 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create a new simulation
+  // Create and run a new simulation
   app.post('/api/companies/:companyId/simulations', isAuthenticated, async (req: any, res) => {
     try {
       const { companyId } = req.params;
       const userId = req.user.claims.sub;
       
-      // Verify user owns the company
+      // IMPROVEMENT 2: Explicit company loading and ownership verification
       const company = await storage.getCompany(companyId);
-      if (!company || company.userId !== userId) {
-        return res.status(403).json({ message: "Access denied" });
+      if (!company) {
+        return res.status(404).json({ 
+          message: "Company not found",
+          error: "COMPANY_NOT_FOUND",
+          companyId 
+        });
+      }
+      
+      if (company.userId !== userId) {
+        return res.status(403).json({ 
+          message: "Access denied - You do not own this company",
+          error: "UNAUTHORIZED_COMPANY_ACCESS",
+          companyId 
+        });
+      }
+      
+      // Additional company validation
+      if (!company.name || !company.legalForm) {
+        return res.status(400).json({
+          message: "Company is not properly configured",
+          error: "COMPANY_INCOMPLETE",
+          companyId
+        });
       }
 
+      // Parse and validate simulation data
       const simulationData = insertSimulationSchema.parse({
         ...req.body,
         companyId,
         year: req.body.year || new Date().getFullYear(),
       });
 
-      const simulation = await storage.createSimulation(simulationData);
-      res.status(201).json(simulation);
+      // Create initial simulation record with 'running' status
+      const initialSimulation = await storage.createSimulation({
+        ...simulationData,
+        status: 'running',
+      });
+
+      try {
+        // Import simulation engine components
+        const { runSimulation, formatSimulationResults } = await import('./engine');
+        const { generateFinancialReport } = await import('./summarizer');
+
+        // Get patterns for the company
+        const [revenuePatterns, expensePatterns] = await Promise.all([
+          storage.getRevenuePatterns(companyId),
+          storage.getExpensePatterns(companyId),
+        ]);
+
+        // Validate simulation inputs
+        if (!simulationData.inputs) {
+          throw new Error('Simulation inputs are required');
+        }
+
+        // IMPROVEMENT 2: Verify company is valid before passing to simulation engine
+        if (!company || !company.id || company.id !== companyId) {
+          throw new Error(`Company validation failed: company mismatch or invalid company data`);
+        }
+        
+        // Run the simulation engine with verified company
+        const startTime = Date.now();
+        const simulationResults = await runSimulation(
+          simulationData.inputs,
+          revenuePatterns,
+          expensePatterns,
+          company
+        );
+
+        const processingTime = Date.now() - startTime;
+        console.log(`Simulation completed in ${processingTime}ms for company ${companyId}`);
+
+        // Generate financial report
+        const financialReport = generateFinancialReport(simulationResults);
+
+        // Format results for API response
+        const formattedResults = formatSimulationResults(simulationResults);
+
+        // Save account balances to database
+        const accountBalancePromises = simulationResults.monthlyBalances.map(balance => 
+          storage.saveAccountBalance({
+            simulationId: initialSimulation.id,
+            accountType: balance.account,
+            accountName: `${balance.account}_account`,
+            month: balance.month,
+            balance: String(balance.closingBalance),
+            transactions: balance.transactions,
+          })
+        );
+
+        await Promise.all(accountBalancePromises);
+
+        // Update simulation with completed results
+        const completedSimulation = await storage.updateSimulation(initialSimulation.id, {
+          status: 'completed',
+          results: formattedResults,
+          totalRevenue: String(simulationResults.overallTotals.totalRevenue.net),
+          totalExpenses: String(simulationResults.overallTotals.totalExpenses.net),
+          netProfit: String(simulationResults.overallTotals.netProfit),
+          totalTaxes: String(Math.max(simulationResults.overallTotals.netVatOwed, 0)),
+          completedAt: new Date(),
+        });
+
+        // Return comprehensive response
+        res.status(201).json({
+          simulation: completedSimulation,
+          results: formattedResults,
+          report: {
+            overview: financialReport.overview,
+            kpis: financialReport.kpis,
+            monthlyTotals: simulationResults.monthlyTotals,
+          },
+          metadata: {
+            processingTimeMs: processingTime,
+            totalOccurrences: simulationResults.metadata.totalOccurrences,
+            engineVersion: simulationResults.metadata.engineVersion,
+            patternsProcessed: {
+              revenue: revenuePatterns.length,
+              expense: expensePatterns.length,
+            },
+          },
+        });
+
+      } catch (simulationError) {
+        console.error("Simulation engine error:", simulationError);
+        
+        // IMPROVEMENT 2: Enhanced error handling - Update simulation status to failed with detailed error info
+        try {
+          await storage.updateSimulation(initialSimulation.id, {
+            status: 'failed',
+            results: { 
+              error: simulationError instanceof Error ? simulationError.message : 'Unknown simulation error',
+              timestamp: new Date().toISOString(),
+              companyId,
+              engineVersion: 'v1'
+            },
+          });
+        } catch (updateError) {
+          console.error("Failed to update simulation status to failed:", updateError);
+        }
+
+        throw simulationError;
+      }
+
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ 
@@ -292,8 +423,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           errors: error.errors 
         });
       }
-      console.error("Error creating simulation:", error);
-      res.status(500).json({ message: "Failed to create simulation" });
+      console.error("Error running simulation:", error);
+      res.status(500).json({ 
+        message: "Failed to run simulation", 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
