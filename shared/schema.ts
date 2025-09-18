@@ -101,6 +101,29 @@ export interface SimulationInputs {
   holidayRegion: string;
 }
 
+// Progress tracking interfaces for real-time simulation
+export interface SimulationProgress {
+  simulationId: string;
+  status: 'draft' | 'running' | 'completed' | 'failed';
+  currentMonth: number; // 1-12
+  progress: number; // 0-100
+  partialBalances?: {
+    [K in Account]: number;
+  };
+  taxes?: {
+    tva: number;
+    urssaf: number;
+    netCashFlow: number;
+  };
+  timestamp: string; // ISO date string
+}
+
+// Server-Sent Events payload for streaming updates
+export interface SimulationStreamEvent {
+  type: 'progress' | 'completed' | 'error';
+  data: SimulationProgress | { message: string };
+}
+
 // Simulations table to store simulation runs
 export const simulations = pgTable("simulations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -111,6 +134,12 @@ export const simulations = pgTable("simulations", {
   inputs: jsonb("inputs"), // Store run parameters (SimulationInputs)
   engineVersion: varchar("engine_version").default("v1"), // Track simulation engine version
   results: jsonb("results"), // Store monthly cash flows and account balances
+  
+  // Progress tracking fields for real-time simulation
+  currentMonth: integer("current_month").default(1), // Current month being processed (1-12)
+  progress: decimal("progress", { precision: 5, scale: 2 }).default("0.00"), // Progress percentage (0-100)
+  partialResults: jsonb("partial_results"), // Month-by-month progress data
+  
   totalRevenue: decimal("total_revenue", { precision: 12, scale: 2 }),
   totalExpenses: decimal("total_expenses", { precision: 12, scale: 2 }),
   netProfit: decimal("net_profit", { precision: 12, scale: 2 }),

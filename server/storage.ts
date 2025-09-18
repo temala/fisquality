@@ -18,6 +18,7 @@ import {
   type InsertSimulation,
   type AccountBalance,
   type TaxCalculation,
+  type SimulationProgress,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -61,6 +62,10 @@ export interface IStorage {
   // Tax calculation operations
   getTaxCalculations(simulationId: string): Promise<TaxCalculation[]>;
   saveTaxCalculation(calculation: Omit<TaxCalculation, 'id'>): Promise<TaxCalculation>;
+  
+  // Progress tracking operations for real-time simulation
+  updateSimulationProgress(id: string, progress: Partial<Pick<Simulation, 'currentMonth' | 'progress' | 'partialResults' | 'status'>>): Promise<void>;
+  getSimulationProgress(id: string): Promise<SimulationProgress | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -294,6 +299,54 @@ export class DatabaseStorage implements IStorage {
       .values(calculation)
       .returning();
     return newCalculation;
+  }
+
+  // Progress tracking operations for real-time simulation
+  
+  async updateSimulationProgress(
+    id: string, 
+    progress: Partial<Pick<Simulation, 'currentMonth' | 'progress' | 'partialResults' | 'status'>>
+  ): Promise<void> {
+    const updateData: any = { ...progress };
+    
+    // Normalize progress to string for decimal field
+    if (progress.progress !== undefined) {
+      updateData.progress = String(progress.progress);
+    }
+    
+    await db
+      .update(simulations)
+      .set(updateData)
+      .where(eq(simulations.id, id));
+  }
+
+  async getSimulationProgress(id: string): Promise<SimulationProgress | undefined> {
+    const [simulation] = await db
+      .select({
+        id: simulations.id,
+        status: simulations.status,
+        currentMonth: simulations.currentMonth,
+        progress: simulations.progress,
+        partialResults: simulations.partialResults,
+      })
+      .from(simulations)
+      .where(eq(simulations.id, id));
+
+    if (!simulation) {
+      return undefined;
+    }
+
+    const partialResultsData = simulation.partialResults as any;
+    
+    return {
+      simulationId: simulation.id,
+      status: simulation.status as 'draft' | 'running' | 'completed' | 'failed',
+      currentMonth: simulation.currentMonth || 1,
+      progress: parseFloat(simulation.progress || '0'),
+      partialBalances: partialResultsData?.partialBalances,
+      taxes: partialResultsData?.taxes,
+      timestamp: new Date().toISOString(),
+    };
   }
 }
 

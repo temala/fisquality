@@ -29,17 +29,26 @@ interface Edge {
   color: string;
 }
 
-interface GraphVisualizationProps {
-  accounts: Account[];
+interface SimulationStatus {
+  isRunning: boolean;
+  currentMonth: number;
+  progress: number;
+  status: 'draft' | 'running' | 'completed' | 'failed';
 }
 
-export default function GraphVisualization({ accounts }: GraphVisualizationProps) {
+interface GraphVisualizationProps {
+  accounts: Account[];
+  simulationStatus?: SimulationStatus;
+}
+
+export default function GraphVisualization({ accounts, simulationStatus }: GraphVisualizationProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [animationFrame, setAnimationFrame] = useState(0);
 
   // Hierarchical layout configuration
   const LEVEL_HEIGHT = 150;
@@ -260,11 +269,16 @@ export default function GraphVisualization({ accounts }: GraphVisualizationProps
     const x = node.x - node.width / 2;
     const y = node.y - node.height / 2;
     const radius = 12;
+    const isSelected = selectedNode?.id === node.id;
+    const isSimulationRunning = simulationStatus?.isRunning;
+
+    // Add pulsing animation for running simulation
+    const pulseIntensity = isSimulationRunning ? 0.1 + 0.05 * Math.sin(animationFrame * 0.1) : 0;
 
     // Draw shadow
     ctx.save();
     ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 10 + (isSimulationRunning ? pulseIntensity * 5 : 0);
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 4;
 
@@ -272,17 +286,22 @@ export default function GraphVisualization({ accounts }: GraphVisualizationProps
     ctx.beginPath();
     ctx.roundRect(x, y, node.width, node.height, radius);
     
-    // Create gradient
+    // Create gradient with animation glow for running simulation
     const gradient = ctx.createLinearGradient(x, y, x, y + node.height);
-    gradient.addColorStop(0, node.color);
-    gradient.addColorStop(1, darkenColor(node.color, 0.1));
+    const baseColor = node.color;
+    const glowColor = isSimulationRunning ? 
+      `hsl(220, 85%, ${60 + pulseIntensity * 20}%)` : baseColor;
+    
+    gradient.addColorStop(0, glowColor);
+    gradient.addColorStop(1, darkenColor(baseColor, 0.1));
     
     ctx.fillStyle = gradient;
     ctx.fill();
 
-    // Draw border
-    ctx.strokeStyle = node.borderColor;
-    ctx.lineWidth = selectedNode?.id === node.id ? 3 : 2;
+    // Draw border with simulation status indication
+    ctx.strokeStyle = isSimulationRunning ? 
+      `hsl(142, 71%, ${45 + pulseIntensity * 10}%)` : node.borderColor;
+    ctx.lineWidth = isSelected ? 3 : (isSimulationRunning ? 2.5 : 2);
     ctx.stroke();
 
     ctx.restore();
@@ -330,9 +349,31 @@ export default function GraphVisualization({ accounts }: GraphVisualizationProps
     return color;
   };
 
+  // Animation loop for real-time effects
+  useEffect(() => {
+    let animationId: number;
+    
+    const animate = () => {
+      if (simulationStatus?.isRunning) {
+        setAnimationFrame(prev => prev + 1);
+        animationId = requestAnimationFrame(animate);
+      }
+    };
+    
+    if (simulationStatus?.isRunning) {
+      animate();
+    }
+    
+    return () => {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+      }
+    };
+  }, [simulationStatus?.isRunning]);
+
   useEffect(() => {
     drawGraph();
-  }, [accounts, scale, offset, selectedNode]);
+  }, [accounts, scale, offset, selectedNode, animationFrame, simulationStatus]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     const canvas = canvasRef.current;
@@ -434,9 +475,32 @@ export default function GraphVisualization({ accounts }: GraphVisualizationProps
         </Button>
       </div>
 
+      {/* Simulation Status Indicator */}
+      {simulationStatus && (
+        <div className="absolute top-4 left-4 bg-card border rounded-lg p-3 shadow-lg z-10">
+          <div className="flex items-center gap-2 mb-2">
+            <div className={`w-2 h-2 rounded-full ${
+              simulationStatus.status === 'running' ? 'bg-green-500 animate-pulse' :
+              simulationStatus.status === 'completed' ? 'bg-blue-500' :
+              simulationStatus.status === 'failed' ? 'bg-red-500' : 'bg-gray-500'
+            }`}></div>
+            <span className="text-sm font-medium">
+              {simulationStatus.status === 'running' ? 'Simulation en cours' :
+               simulationStatus.status === 'completed' ? 'Simulation terminée' :
+               simulationStatus.status === 'failed' ? 'Simulation échouée' : 'Prêt'}
+            </span>
+          </div>
+          {simulationStatus.isRunning && (
+            <p className="text-xs text-muted-foreground">
+              Mois {simulationStatus.currentMonth}/12 • {simulationStatus.progress.toFixed(0)}%
+            </p>
+          )}
+        </div>
+      )}
+      
       {/* Selected Node Info */}
       {selectedNode && (
-        <div className="absolute top-4 left-4 bg-card border rounded-lg p-3 shadow-lg z-10" data-testid="panel-node-info">
+        <div className="absolute top-20 left-4 bg-card border rounded-lg p-3 shadow-lg z-10" data-testid="panel-node-info">
           <h4 className="font-semibold">{selectedNode.name}</h4>
           <p className="text-sm text-muted-foreground">Type: {selectedNode.type}</p>
           <p className="font-mono font-bold text-sm">

@@ -670,13 +670,16 @@ function validateVATInvariants(
  * Main simulation engine function
  * 
  * Processes patterns and generates comprehensive financial simulation results
+ * with real-time progress updates
  */
 export async function runSimulation(
   inputs: SimulationInputs,
   revenuePatterns: any[],
   expensePatterns: any[],
   company: Company,
-  config: Partial<EngineConfig> = {}
+  config: Partial<EngineConfig> = {},
+  simulationId?: string,
+  progressCallback?: (progress: any) => Promise<void>
 ): Promise<SimulationResults> {
   const startTime = Date.now();
   const engineConfig = { ...DEFAULT_ENGINE_CONFIG, ...config };
@@ -699,8 +702,27 @@ export async function runSimulation(
     throw new Error('Company validation failed: Invalid user ID format');
   }
   
+  // Helper function to emit progress updates
+  const emitProgress = async (month: number, progress: number, partialBalances?: any, taxes?: any) => {
+    if (progressCallback && simulationId) {
+      try {
+        await progressCallback({
+          simulationId,
+          currentMonth: month,
+          progress,
+          partialBalances,
+          taxes,
+        });
+      } catch (error) {
+        console.warn(`Progress update failed for simulation ${simulationId}:`, error);
+      }
+    }
+  };
+
   try {
     // Step 1: Expand all patterns into occurrences
+    await emitProgress(1, 10); // 10% - Pattern expansion
+    
     const occurrences = expandAllPatterns(
       revenuePatterns,
       expensePatterns,
@@ -709,20 +731,78 @@ export async function runSimulation(
     );
     
     // Step 2: Initialize account balances with starting balances
+    await emitProgress(1, 20); // 20% - Account initialization
+    
     const balanceMap = createInitialBalances(inputs.startingBalances, inputs.fiscalStartMonth);
     
-    // Step 3: Apply each occurrence to the account balances
+    // Step 3: Apply occurrences month by month with progress updates
+    const processingFiscalOrder = getFiscalMonthOrder(inputs.fiscalStartMonth);
+    const monthlyOccurrences = new Map<number, typeof occurrences>();
+    
+    // Group occurrences by month
     occurrences.forEach(occurrence => {
-      applyOccurrenceToBalances(occurrence, balanceMap);
+      const month = new Date(occurrence.date).getMonth() + 1;
+      if (!monthlyOccurrences.has(month)) {
+        monthlyOccurrences.set(month, []);
+      }
+      monthlyOccurrences.get(month)!.push(occurrence);
     });
     
+    // Process each month in fiscal order with progress updates
+    for (let i = 0; i < processingFiscalOrder.length; i++) {
+      const month = processingFiscalOrder[i];
+      const monthOccurrences = monthlyOccurrences.get(month) || [];
+      
+      // Apply occurrences for this month
+      monthOccurrences.forEach(occurrence => {
+        applyOccurrenceToBalances(occurrence, balanceMap);
+      });
+      
+      // Calculate progress (20% base + 60% processing across 12 months)
+      const monthProgress = 20 + ((i + 1) / 12) * 60;
+      
+      // Get current account balances for this month
+      const currentBalances: any = {};
+      balanceMap.forEach((accountBalances, account) => {
+        const monthBalance = accountBalances.find(b => b.month === month);
+        if (monthBalance) {
+          currentBalances[account] = monthBalance.closingBalance;
+        }
+      });
+      
+      // Calculate taxes for this month (basic calculation for progress)
+      const monthRevenue = monthOccurrences
+        .filter(o => o.type === 'revenue')
+        .reduce((sum, o) => sum + o.postings.reduce((s, p) => s + p.amount, 0), 0);
+      const monthExpenses = monthOccurrences
+        .filter(o => o.type === 'expense')
+        .reduce((sum, o) => sum + o.postings.reduce((s, p) => s + p.amount, 0), 0);
+      
+      const taxes = {
+        tva: Math.abs(currentBalances.vat || 0),
+        urssaf: monthRevenue * 0.45, // Approximate URSSAF calculation
+        netCashFlow: monthRevenue + monthExpenses, // Expenses are negative
+      };
+      
+      // Emit progress update for this month
+      await emitProgress(month, monthProgress, currentBalances, taxes);
+      
+      // Small delay to make progress visible (remove in production for speed)
+      if (progressCallback) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    };
+    
     // Step 4: ADDED - Finalize balances with proper roll-forward calculation
+    await emitProgress(12, 85); // 85% - Finalizing balances
     finalizeBalances(balanceMap, inputs.fiscalStartMonth);
     
     // Step 5: Calculate monthly summaries
+    await emitProgress(12, 90); // 90% - Calculating summaries
     const monthlyTotals = calculateMonthlySummaries(balanceMap, occurrences, inputs.fiscalStartMonth);
     
     // Step 6: Calculate overall summary
+    await emitProgress(12, 95); // 95% - Final calculations
     const overallTotals = calculateOverallSummary(monthlyTotals);
     
     // IMPROVEMENT 3: Validate invariants for production robustness
@@ -772,15 +852,18 @@ export async function runSimulation(
     }
     
     // Sort monthly balances in fiscal year order
-    const fiscalMonthOrder = getFiscalMonthOrder(inputs.fiscalStartMonth);
+    const sortingFiscalOrder = getFiscalMonthOrder(inputs.fiscalStartMonth);
     const sortedMonthlyBalances = monthlyBalances.sort((a, b) => {
-      const aFiscalIndex = fiscalMonthOrder.indexOf(a.month);
-      const bFiscalIndex = fiscalMonthOrder.indexOf(b.month);
+      const aFiscalIndex = sortingFiscalOrder.indexOf(a.month);
+      const bFiscalIndex = sortingFiscalOrder.indexOf(b.month);
       if (aFiscalIndex !== bFiscalIndex) {
         return aFiscalIndex - bFiscalIndex;
       }
       return a.account.localeCompare(b.account);
     });
+    
+    // Final progress update - simulation completed
+    await emitProgress(12, 100); // 100% - Simulation completed
     
     return {
       year: inputs.year,

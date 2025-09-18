@@ -332,13 +332,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           throw new Error(`Company validation failed: company mismatch or invalid company data`);
         }
         
-        // Run the simulation engine with verified company
+        // Create progress callback function to update simulation progress
+        const progressCallback = async (progressData: any) => {
+          await storage.updateSimulationProgress(initialSimulation.id, {
+            currentMonth: progressData.currentMonth,
+            progress: progressData.progress,
+            status: progressData.progress >= 100 ? 'completed' : 'running',
+            partialResults: {
+              partialBalances: progressData.partialBalances,
+              taxes: progressData.taxes,
+            },
+          });
+        };
+
+        // Run the simulation engine with verified company and progress tracking
         const startTime = Date.now();
         const simulationResults = await runSimulation(
           simulationData.inputs,
           revenuePatterns,
           expensePatterns,
-          company
+          company,
+          {},
+          initialSimulation.id,
+          progressCallback
         );
 
         const processingTime = Date.now() - startTime;
@@ -463,6 +479,138 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching simulation results:", error);
       res.status(500).json({ message: "Failed to fetch simulation results" });
+    }
+  });
+
+  // SSE streaming endpoint for real-time simulation progress
+  app.get('/api/simulations/:id/stream', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Get simulation and verify access
+      const simulation = await storage.getSimulation(id);
+      if (!simulation) {
+        return res.status(404).json({ message: "Simulation not found" });
+      }
+      
+      // Verify user owns the company
+      const company = await storage.getCompany(simulation.companyId);
+      if (!company || company.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Set SSE headers
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control',
+        'X-Accel-Buffering': 'no', // Disable nginx buffering
+      });
+
+      // Send initial progress state
+      const initialProgress = await storage.getSimulationProgress(id);
+      if (initialProgress) {
+        const event = {
+          type: 'progress',
+          data: initialProgress
+        };
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+
+      // Set up progress polling
+      let pollInterval: NodeJS.Timeout;
+      let lastProgress = initialProgress?.progress || 0;
+      let lastStatus = initialProgress?.status || 'draft';
+      
+      const sendProgressUpdate = async () => {
+        try {
+          const progress = await storage.getSimulationProgress(id);
+          if (progress) {
+            // Only send updates if there's a meaningful change
+            if (progress.progress !== lastProgress || progress.status !== lastStatus) {
+              const event = {
+                type: progress.status === 'completed' ? 'completed' : 
+                      progress.status === 'failed' ? 'error' : 'progress',
+                data: progress
+              };
+              res.write(`data: ${JSON.stringify(event)}\n\n`);
+              
+              lastProgress = progress.progress;
+              lastStatus = progress.status;
+              
+              // Stop polling if simulation is completed or failed
+              if (progress.status === 'completed' || progress.status === 'failed') {
+                clearInterval(pollInterval);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error sending progress update:', error);
+          const errorEvent = {
+            type: 'error',
+            data: { message: 'Failed to fetch progress update' }
+          };
+          res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+        }
+      };
+
+      // Poll for progress updates every 500ms
+      pollInterval = setInterval(sendProgressUpdate, 500);
+
+      // Clean up when client disconnects
+      req.on('close', () => {
+        if (pollInterval) {
+          clearInterval(pollInterval);
+        }
+        res.end();
+      });
+
+      // Send heartbeat every 30 seconds to keep connection alive
+      const heartbeatInterval = setInterval(() => {
+        res.write(`data: {"type":"heartbeat"}\n\n`);
+      }, 30000);
+
+      req.on('close', () => {
+        clearInterval(heartbeatInterval);
+      });
+
+    } catch (error) {
+      console.error("Error setting up SSE stream:", error);
+      res.status(500).json({ message: "Failed to setup progress stream" });
+    }
+  });
+
+  // Polling fallback endpoint for simulation progress
+  app.get('/api/simulations/:id/progress', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Get simulation and verify access
+      const simulation = await storage.getSimulation(id);
+      if (!simulation) {
+        return res.status(404).json({ message: "Simulation not found" });
+      }
+      
+      // Verify user owns the company
+      const company = await storage.getCompany(simulation.companyId);
+      if (!company || company.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Get current progress
+      const progress = await storage.getSimulationProgress(id);
+      if (!progress) {
+        return res.status(404).json({ message: "Progress not found" });
+      }
+
+      res.json(progress);
+    } catch (error) {
+      console.error("Error fetching simulation progress:", error);
+      res.status(500).json({ message: "Failed to fetch simulation progress" });
     }
   });
 
