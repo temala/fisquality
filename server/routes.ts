@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
-import { insertCompanySchema, insertRevenuePatternSchema, insertExpensePatternSchema, insertSimulationSchema } from "@shared/schema";
+import { insertCompanySchema, insertRevenuePatternSchema, insertRevenuePatternBaseSchema, insertExpensePatternSchema, insertExpensePatternBaseSchema, insertSimulationSchema } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -329,6 +329,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching simulation results:", error);
       res.status(500).json({ message: "Failed to fetch simulation results" });
+    }
+  });
+
+  // Update a revenue pattern
+  app.put('/api/companies/:companyId/revenue-patterns/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId, id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify user owns the company
+      const company = await storage.getCompany(companyId);
+      if (!company || company.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updateData = insertRevenuePatternBaseSchema.partial().parse(req.body);
+      const pattern = await storage.updateRevenuePattern(id, updateData);
+      res.json(pattern);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          message: "Validation error", 
+          errors: error.errors 
+        });
+      }
+      console.error("Error updating revenue pattern:", error);
+      res.status(500).json({ message: "Failed to update revenue pattern" });
+    }
+  });
+
+  // Delete a revenue pattern
+  app.delete('/api/companies/:companyId/revenue-patterns/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId, id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify user owns the company
+      const company = await storage.getCompany(companyId);
+      if (!company || company.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteRevenuePattern(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting revenue pattern:", error);
+      res.status(500).json({ message: "Failed to delete revenue pattern" });
+    }
+  });
+
+  // Update an expense pattern
+  app.put('/api/companies/:companyId/expense-patterns/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId, id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify user owns the company
+      const company = await storage.getCompany(companyId);
+      if (!company || company.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updateData = insertExpensePatternBaseSchema.partial().parse(req.body);
+      const pattern = await storage.updateExpensePattern(id, updateData);
+      res.json(pattern);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          message: "Validation error", 
+          errors: error.errors 
+        });
+      }
+      console.error("Error updating expense pattern:", error);
+      res.status(500).json({ message: "Failed to update expense pattern" });
+    }
+  });
+
+  // Delete an expense pattern
+  app.delete('/api/companies/:companyId/expense-patterns/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId, id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify user owns the company
+      const company = await storage.getCompany(companyId);
+      if (!company || company.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteExpensePattern(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting expense pattern:", error);
+      res.status(500).json({ message: "Failed to delete expense pattern" });
     }
   });
 

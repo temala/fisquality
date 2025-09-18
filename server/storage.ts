@@ -128,9 +128,19 @@ export class DatabaseStorage implements IStorage {
   // Revenue pattern operations
   
   async createRevenuePattern(pattern: InsertRevenuePattern): Promise<RevenuePattern> {
+    // Normalize decimal amounts to strings
+    const normalizedPattern: any = {
+      ...pattern,
+      amount: String(pattern.amount)
+    };
+    
+    if (pattern.vatRate !== undefined) {
+      normalizedPattern.vatRate = String(pattern.vatRate);
+    }
+    
     const [newPattern] = await db
       .insert(revenuePatterns)
-      .values(pattern)
+      .values(normalizedPattern)
       .returning();
     return newPattern;
   }
@@ -144,9 +154,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateRevenuePattern(id: string, pattern: Partial<InsertRevenuePattern>): Promise<RevenuePattern> {
+    // Normalize decimal amounts to strings
+    const normalizedPattern: any = { ...pattern };
+    
+    if (pattern.amount !== undefined) {
+      normalizedPattern.amount = String(pattern.amount);
+    }
+    
+    if (pattern.vatRate !== undefined) {
+      normalizedPattern.vatRate = String(pattern.vatRate);
+    }
+    
     const [updatedPattern] = await db
       .update(revenuePatterns)
-      .set(pattern)
+      .set(normalizedPattern)
       .where(eq(revenuePatterns.id, id))
       .returning();
     return updatedPattern;
@@ -159,9 +180,15 @@ export class DatabaseStorage implements IStorage {
   // Expense pattern operations
   
   async createExpensePattern(pattern: InsertExpensePattern): Promise<ExpensePattern> {
+    // Normalize decimal amounts to strings
+    const normalizedPattern = {
+      ...pattern,
+      amount: String(pattern.amount)
+    };
+    
     const [newPattern] = await db
       .insert(expensePatterns)
-      .values(pattern)
+      .values(normalizedPattern)
       .returning();
     return newPattern;
   }
@@ -175,9 +202,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateExpensePattern(id: string, pattern: Partial<InsertExpensePattern>): Promise<ExpensePattern> {
+    // Normalize decimal amounts to strings
+    const normalizedPattern: any = { ...pattern };
+    
+    if (pattern.amount !== undefined) {
+      normalizedPattern.amount = String(pattern.amount);
+    }
+    
     const [updatedPattern] = await db
       .update(expensePatterns)
-      .set(pattern)
+      .set(normalizedPattern)
       .where(eq(expensePatterns.id, id))
       .returning();
     return updatedPattern;

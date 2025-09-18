@@ -18,6 +18,7 @@ interface CompanyFormData {
   activity: string;
   capital: number;
   bank: string;
+  businessType: string;
 }
 
 const LEGAL_FORMS = [
@@ -49,6 +50,15 @@ const BANKS = [
   { value: "caisse_epargne", label: "Caisse d'Épargne" }
 ];
 
+const BUSINESS_TYPES = [
+  { value: "freelancer", label: "Freelance / Indépendant", description: "Activité individuelle, facturation ponctuelle" },
+  { value: "traditional", label: "Entreprise traditionnelle", description: "Structure classique avec employés" },
+  { value: "retail", label: "Commerce de détail", description: "Vente directe aux consommateurs" },
+  { value: "consultancy", label: "Cabinet de conseil", description: "Services de conseil et expertise" },
+  { value: "ecommerce", label: "E-commerce", description: "Vente en ligne et commerce électronique" },
+  { value: "restaurant", label: "Restauration", description: "Services de restauration et hôtellerie" }
+];
+
 export default function CompanySetup() {
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<CompanyFormData>({
@@ -56,10 +66,11 @@ export default function CompanySetup() {
     legalForm: "",
     activity: "",
     capital: 10000,
-    bank: ""
+    bank: "",
+    businessType: "traditional"
   });
 
-  const totalSteps = 4;
+  const totalSteps = 5; // Added business type step
   const progress = (currentStep / totalSteps) * 100;
 
   const handleNext = () => {
@@ -85,6 +96,8 @@ export default function CompanySetup() {
         activitySector: companyData.activity,
         capital: companyData.capital,
         bankPartner: companyData.bank,
+        businessType: companyData.businessType,
+        holidayRegion: "FR",
       });
     },
     onSuccess: () => {
@@ -125,7 +138,8 @@ export default function CompanySetup() {
       case 1: return formData.name.length > 0;
       case 2: return formData.legalForm.length > 0 && formData.activity.length > 0;
       case 3: return formData.capital > 0;
-      case 4: return formData.bank.length > 0;
+      case 4: return formData.businessType.length > 0;
+      case 5: return formData.bank.length > 0;
       default: return false;
     }
   };
@@ -150,11 +164,12 @@ export default function CompanySetup() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {currentStep === 4 && <CheckCircle className="h-5 w-5 text-chart-2" />}
+              {currentStep === 5 && <CheckCircle className="h-5 w-5 text-chart-2" />}
               {currentStep === 1 && "Informations générales"}
               {currentStep === 2 && "Forme juridique et activité"}
               {currentStep === 3 && "Capital social"}
-              {currentStep === 4 && "Choix de la banque"}
+              {currentStep === 4 && "Type d'activité"}
+              {currentStep === 5 && "Choix de la banque"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -292,8 +307,91 @@ export default function CompanySetup() {
               </div>
             )}
 
-            {/* Step 4: Bank Selection */}
+            {/* Step 4: Business Type Selection */}
             {currentStep === 4 && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="business-type">Type d'activité *</Label>
+                  <div className="grid gap-3">
+                    {BUSINESS_TYPES.map(type => (
+                      <div 
+                        key={type.value}
+                        className={`p-4 border rounded-lg cursor-pointer transition-all hover-elevate ${
+                          formData.businessType === type.value 
+                            ? 'border-primary bg-primary/5' 
+                            : 'border-border'
+                        }`}
+                        onClick={() => updateFormData('businessType', type.value)}
+                        data-testid={`button-business-type-${type.value}`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-1">
+                            <h4 className="font-medium">{type.label}</h4>
+                            <p className="text-sm text-muted-foreground">{type.description}</p>
+                          </div>
+                          {formData.businessType === type.value && (
+                            <CheckCircle className="w-5 h-5 text-primary" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {formData.businessType && (
+                  <div className="p-4 bg-secondary/10 rounded-lg">
+                    <h4 className="font-medium mb-2">Avantages de ce type d'activité</h4>
+                    <div className="text-sm text-muted-foreground">
+                      {formData.businessType === 'freelancer' && (
+                        <ul className="space-y-1">
+                          <li>• Simplicité administrative</li>
+                          <li>• Flexibilité de facturation</li>
+                          <li>• Schémas quotidiens pour activités ponctuelles</li>
+                        </ul>
+                      )}
+                      {formData.businessType === 'traditional' && (
+                        <ul className="space-y-1">
+                          <li>• Structure éprouvée</li>
+                          <li>• Gestion d'équipe</li>
+                          <li>• Revenus réguliers et prévisibles</li>
+                        </ul>
+                      )}
+                      {formData.businessType === 'retail' && (
+                        <ul className="space-y-1">
+                          <li>• Chiffre d'affaires quotidien</li>
+                          <li>• Gestion des stocks</li>
+                          <li>• Horaires d'ouverture flexibles</li>
+                        </ul>
+                      )}
+                      {formData.businessType === 'consultancy' && (
+                        <ul className="space-y-1">
+                          <li>• Facturation par mission</li>
+                          <li>• Expertise valorisée</li>
+                          <li>• Relations client durables</li>
+                        </ul>
+                      )}
+                      {formData.businessType === 'ecommerce' && (
+                        <ul className="space-y-1">
+                          <li>• Ventes 24h/24</li>
+                          <li>• Marché international</li>
+                          <li>• Automatisation possible</li>
+                        </ul>
+                      )}
+                      {formData.businessType === 'restaurant' && (
+                        <ul className="space-y-1">
+                          <li>• Revenus quotidiens</li>
+                          <li>• Gestion des horaires d'ouverture</li>
+                          <li>• Exclusions week-ends et fériés</li>
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 5: Bank Selection */}
+            {currentStep === 5 && (
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="bank">Banque partenaire *</Label>
