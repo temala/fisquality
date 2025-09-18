@@ -1,26 +1,9 @@
-import * as client from "openid-client";
-import { Strategy, type VerifyFunction } from "openid-client/passport";
-
 import passport from "passport";
 import session from "express-session";
+import { Strategy as LocalStrategy } from "passport-local";
 import type { Express, RequestHandler } from "express";
-import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
-
-if (!process.env.REPLIT_DOMAINS) {
-  throw new Error("Environment variable REPLIT_DOMAINS not provided");
-}
-
-const getOidcConfig = memoize(
-  async () => {
-    return await client.discovery(
-      new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
-      process.env.REPL_ID!
-    );
-  },
-  { maxAge: 3600 * 1000 }
-);
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
@@ -31,6 +14,7 @@ export function getSession() {
     ttl: sessionTtl,
     tableName: "sessions",
   });
+
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
@@ -38,32 +22,24 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production", // Only secure in production
       maxAge: sessionTtl,
     },
   });
 }
 
-function updateUserSession(
-  user: any,
-  tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers
-) {
-  user.claims = tokens.claims();
-  user.access_token = tokens.access_token;
-  user.refresh_token = tokens.refresh_token;
-  user.expires_at = user.claims?.exp;
-}
-
-async function upsertUser(
-  claims: any,
-) {
-  await storage.upsertUser({
-    id: claims["sub"],
-    email: claims["email"],
-    firstName: claims["first_name"],
-    lastName: claims["last_name"],
-    profileImageUrl: claims["profile_image_url"],
-  });
+async function upsertUserLocal(username: string) {
+  // Simple local user object for testing with more realistic data
+  const userData = {
+    id: username,
+    email: `${username}@example.com`,
+    firstName: username,
+    lastName: "Local",
+    profileImageUrl: "",
+  };
+  
+  await storage.upsertUser(userData);
+  return userData;
 }
 
 export async function setupAuth(app: Express) {
@@ -72,86 +48,181 @@ export async function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  const config = await getOidcConfig();
+  // --------------------
+  // Passport Local Strategy
+  // --------------------
+  passport.use(
+    new LocalStrategy(async (username, password, done) => {
+      try {
+        // Accept a single local test user: admin / admin
+        if (username === "admin" && password === "admin") {
+          const userData = await upsertUserLocal(username);
+          
+          // Create user object with claims nested structure
+          const userWithClaims = {
+            // Standard user properties
+            id: username,
+            username: username,
+            email: userData.email,
+            firstName: userData.firstName,
+            lastName: userData.lastName,
+            profileImageUrl: userData.profileImageUrl,
+            
+            // Nested claims object (like JWT structure)
+            claims: {
+              sub: username, // Subject - unique user identifier
+              iss: "local-auth", // Issuer - who issued this token/session
+              aud: "fiscalflows", // Audience - intended recipient
+              iat: Math.floor(Date.now() / 1000), // Issued at (Unix timestamp)
+              exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60), // Expires in 7 days
+              role: "admin",
+              permissions: ["read", "write", "delete"],
+              tenant: "default",
+              plan: "premium"
+            },
+            
+            // Keep sub at root level for compatibility
+            sub: username
+          };
+          
+          return done(null, userWithClaims);
+        }
+        return done(null, false, { message: "Incorrect username or password." });
+      } catch (error: any) {
+        return done(error);
+      }
+    })
+  );
 
-  const verify: VerifyFunction = async (
-    tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
-    verified: passport.AuthenticateCallback
-  ) => {
-    const user = {};
-    updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
-    verified(null, user);
-  };
-
-  for (const domain of process.env
-    .REPLIT_DOMAINS!.split(",")) {
-    const strategy = new Strategy(
-      {
-        name: `replitauth:${domain}`,
-        config,
-        scope: "openid email profile offline_access",
-        callbackURL: `https://${domain}/api/callback`,
-      },
-      verify,
-    );
-    passport.use(strategy);
-  }
-
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
-
-  app.get("/api/login", (req, res, next) => {
-    passport.authenticate(`replitauth:${req.hostname}`, {
-      prompt: "login consent",
-      scope: ["openid", "email", "profile", "offline_access"],
-    })(req, res, next);
+  // Fixed serialization/deserialization
+  passport.serializeUser((user: any, cb) => {
+    cb(null, user.id);
+  });
+  
+  passport.deserializeUser(async (id: string, cb) => {
+    try {
+      // Recreate user object with nested claims structure
+      const userWithClaims = {
+        // Standard user properties
+        id: id,
+        username: id,
+        email: `${id}@example.com`,
+        firstName: id,
+        lastName: "Local",
+        profileImageUrl: "",
+        
+        // Nested claims object
+        claims: {
+          sub: id, // Subject
+          iss: "local-auth", // Issuer
+          aud: "fiscalflows", // Audience
+          iat: Math.floor(Date.now() / 1000), // Issued at
+          exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60), // Expires in 7 days
+          role: "admin",
+          permissions: ["read", "write", "delete"],
+          tenant: "default",
+          plan: "premium"
+        },
+        
+        // Keep sub at root level for compatibility
+        sub: id
+      };
+      
+      cb(null, userWithClaims);
+    } catch (error: any) {
+      cb(error);
+    }
   });
 
-  app.get("/api/callback", (req, res, next) => {
-    passport.authenticate(`replitauth:${req.hostname}`, {
-      successReturnToOrRedirect: "/",
-      failureRedirect: "/api/login",
-    })(req, res, next);
+  // --------------------
+  // Routes
+  // --------------------
+  app.get("/api/login", (req, res) => {
+    // Check if already authenticated
+    if (req.isAuthenticated()) {
+      return res.redirect("/");
+    }
+    
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Login</title>
+      </head>
+      <body>
+        <h2>Login</h2>
+        <form method="post" action="/api/login">
+          <div>
+            <input name="username" placeholder="Username" required />
+          </div>
+          <div>
+            <input name="password" type="password" placeholder="Password" required />
+          </div>
+          <div>
+            <button type="submit">Login</button>
+          </div>
+        </form>
+        <p><small>Test credentials: admin / admin</small></p>
+      </body>
+      </html>
+    `);
   });
+
+  app.post(
+    "/api/login",
+    (req, res, next) => {
+      // Add error handling
+      passport.authenticate("local", (err: any, user: any, info: any) => {
+        if (err) {
+          return next(err);
+        }
+        if (!user) {
+          return res.status(401).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Login Failed</title>
+            </head>
+            <body>
+              <h2>Login Failed</h2>
+              <p>${info?.message || "Authentication failed"}</p>
+              <a href="/api/login">Try Again</a>
+            </body>
+            </html>
+          `);
+        }
+        req.logIn(user, (err: any) => {
+          if (err) {
+            return next(err);
+          }
+          return res.redirect("/");
+        });
+      })(req, res, next);
+    }
+  );
 
   app.get("/api/logout", (req, res) => {
-    req.logout(() => {
-      res.redirect(
-        client.buildEndSessionUrl(config, {
-          client_id: process.env.REPL_ID!,
-          post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
-        }).href
-      );
+    req.logout((err: any) => {
+      if (err) {
+        console.error("Logout error:", err);
+      }
+      res.redirect("/api/login");
     });
+  });
+
+  // Add routes to check authentication status
+  app.get("/api/user", isAuthenticated, (req, res) => {
+    res.json(req.user);
+  });
+
+  app.get("/api/auth/user", isAuthenticated, (req, res) => {
+    res.json(req.user);
   });
 }
 
-export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  const user = req.user as any;
-
-  if (!req.isAuthenticated() || !user.expires_at) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if (now <= user.expires_at) {
+export const isAuthenticated: RequestHandler = (req, res, next) => {
+  if (req.isAuthenticated()) {
     return next();
   }
-
-  const refreshToken = user.refresh_token;
-  if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
-
-  try {
-    const config = await getOidcConfig();
-    const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
-    updateUserSession(user, tokenResponse);
-    return next();
-  } catch (error) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
+  return res.status(401).json({ message: "Unauthorized" });
 };

@@ -1,9 +1,10 @@
-import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { insertCompanySchema, insertRevenuePatternSchema, insertRevenuePatternBaseSchema, insertExpensePatternSchema, insertExpensePatternBaseSchema, insertSimulationSchema } from "@shared/schema";
 import { z } from "zod";
+
+import type { Express } from "express";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -395,8 +396,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalRevenue: String(simulationResults.overallTotals.totalRevenue.net),
           totalExpenses: String(simulationResults.overallTotals.totalExpenses.net),
           netProfit: String(simulationResults.overallTotals.netProfit),
-          totalTaxes: String(Math.max(simulationResults.overallTotals.netVatOwed, 0)),
-          completedAt: new Date(),
+          totalTaxes: String(Math.max(simulationResults.overallTotals.netVatOwed, 0)),          
         });
 
         // Return comprehensive response

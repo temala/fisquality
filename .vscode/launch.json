@@ -1,0 +1,121 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug React Frontend",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://localhost:5173",
+            "webRoot": "${workspaceFolder}/client",
+            "sourceMapPathOverrides": {
+                "webpack:///src/*": "${webRoot}/*"
+            },
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
+        },
+        {
+            "name": "Debug Node.js Backend",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/server/index.ts",
+            "outFiles": [
+                "${workspaceFolder}/dist/**/*.js"
+            ],
+            "runtimeArgs": [
+                "--loader",
+                "tsx/esm"
+            ],
+            "env": {
+                "NODE_ENV": "development"
+            },
+            "console": "integratedTerminal",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "restart": true,
+            "resolveSourceMapLocations": [
+                "${workspaceFolder}/**",
+                "!**/node_modules/**"
+            ]
+        },
+        {
+            "name": "Debug Node.js Backend (Nodemon)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/node_modules/nodemon/bin/nodemon.js",
+            "args": [
+                "--exec",
+                "node --loader tsx/esm",
+                "${workspaceFolder}/server/index.ts"
+            ],
+            "env": {
+                "NODE_ENV": "development"
+            },
+            "console": "integratedTerminal",
+            "restart": true,
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
+        },
+        {
+            "name": "Debug Fullstack (Frontend + Backend)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/server/index.ts",
+            "outFiles": [
+                "${workspaceFolder}/dist/**/*.js"
+            ],
+            "runtimeArgs": [
+                "--loader",
+                "tsx/esm"
+            ],
+            "env": {
+                "NODE_ENV": "development"
+            },
+            "console": "integratedTerminal",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "serverReadyAction": {
+                "pattern": "Server running on.*port ([0-9]+)",
+                "uriFormat": "http://localhost:%s",
+                "action": "debugWithChrome"
+            }
+        },
+        {
+            "name": "Attach to Node.js Process",
+            "type": "node",
+            "request": "attach",
+            "port": 9229,
+            "restart": true,
+            "localRoot": "${workspaceFolder}/server",
+            "remoteRoot": "${workspaceFolder}/server",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
+        },
+        {
+            "name": "SWA: Run FiscalFlows",
+            "request": "launch",
+            "type": "pwa-chrome",
+            "url": "http://localhost:4280",
+            "preLaunchTask": "swa: start FiscalFlows",
+            "webRoot": "${workspaceFolder}/",
+            "timeout": 30000,
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Launch Fullstack App",
+            "configurations": [
+                "Debug Node.js Backend (Nodemon)",
+                "Debug React Frontend"
+            ],
+            "stopAll": true
+        }
+    ]
+}
