@@ -773,10 +773,10 @@ export async function runSimulation(
       // Calculate taxes for this month (basic calculation for progress)
       const monthRevenue = monthOccurrences
         .filter(o => o.type === 'revenue')
-        .reduce((sum, o) => sum + o.postings.reduce((s, p) => s + p.amount, 0), 0);
+        .reduce((sum, o) => sum + o.accountPostings.reduce((s, p) => s + p.amount, 0), 0);
       const monthExpenses = monthOccurrences
         .filter(o => o.type === 'expense')
-        .reduce((sum, o) => sum + o.postings.reduce((s, p) => s + p.amount, 0), 0);
+        .reduce((sum, o) => sum + o.accountPostings.reduce((s, p) => s + p.amount, 0), 0);
       
       const taxes = {
         tva: Math.abs(currentBalances.vat || 0),
