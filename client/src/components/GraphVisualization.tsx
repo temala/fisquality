@@ -15,7 +15,17 @@ interface Node {
   type: string;
   x: number;
   y: number;
-  radius: number;
+  width: number;
+  height: number;
+  level: number;
+  color: string;
+  borderColor: string;
+}
+
+interface Edge {
+  from: Node;
+  to: Node;
+  amount: number;
   color: string;
 }
 
@@ -31,22 +41,146 @@ export default function GraphVisualization({ accounts }: GraphVisualizationProps
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
 
-  // Convert accounts to nodes
-  const nodes: Node[] = accounts.map((account, index) => ({
-    id: `node-${index}`,
-    name: account.name,
-    balance: account.balance,
-    type: account.type,
-    x: 150 + (index % 3) * 200,
-    y: 150 + Math.floor(index / 3) * 150,
-    radius: Math.max(20, Math.min(60, Math.abs(account.balance) / 5000)),
-    color: getNodeColor(account.type, account.balance)
-  }));
+  // Hierarchical layout configuration
+  const LEVEL_HEIGHT = 150;
+  const NODE_SPACING = 180;
+  const CANVAS_CENTER_X = 300;
+  const START_Y = 80;
 
-  function getNodeColor(type: string, balance: number): string {
-    if (type === 'revenue') return '#10b981'; // green
-    if (type === 'tax' || type === 'expense') return '#ef4444'; // red
-    return balance >= 0 ? '#3b82f6' : '#f59e0b'; // blue or orange
+  // Create hierarchical node layout
+  const createHierarchicalNodes = (): Node[] => {
+    const nodesByType = {
+      revenue: accounts.filter(a => a.type === 'revenue'),
+      asset: accounts.filter(a => a.type === 'asset'),
+      expense: accounts.filter(a => a.type === 'expense'),
+      tax: accounts.filter(a => a.type === 'tax')
+    };
+
+    const nodes: Node[] = [];
+    let nodeId = 0;
+
+    // Level 0: Revenue sources (top)
+    const revenueNodes = nodesByType.revenue.map((account, index) => {
+      const totalRevenue = nodesByType.revenue.length;
+      const x = CANVAS_CENTER_X + (index - (totalRevenue - 1) / 2) * NODE_SPACING;
+      return createNode(nodeId++, account, x, START_Y, 0);
+    });
+
+    // Level 1: Asset accounts (center)
+    const assetNodes = nodesByType.asset.map((account, index) => {
+      const totalAssets = nodesByType.asset.length;
+      const x = CANVAS_CENTER_X + (index - (totalAssets - 1) / 2) * NODE_SPACING;
+      return createNode(nodeId++, account, x, START_Y + LEVEL_HEIGHT, 1);
+    });
+
+    // Level 2: Expenses and Taxes (bottom)
+    const expenseNodes = nodesByType.expense.map((account, index) => {
+      const totalExpenses = nodesByType.expense.length + nodesByType.tax.length;
+      const x = CANVAS_CENTER_X + (index - (totalExpenses - 1) / 2) * NODE_SPACING;
+      return createNode(nodeId++, account, x, START_Y + LEVEL_HEIGHT * 2, 2);
+    });
+
+    const taxNodes = nodesByType.tax.map((account, index) => {
+      const totalExpenses = nodesByType.expense.length + nodesByType.tax.length;
+      const x = CANVAS_CENTER_X + (index + nodesByType.expense.length - (totalExpenses - 1) / 2) * NODE_SPACING;
+      return createNode(nodeId++, account, x, START_Y + LEVEL_HEIGHT * 2, 2);
+    });
+
+    return [...revenueNodes, ...assetNodes, ...expenseNodes, ...taxNodes];
+  };
+
+  const createNode = (id: number, account: Account, x: number, y: number, level: number): Node => {
+    const importance = Math.abs(account.balance);
+    const width = Math.max(120, Math.min(200, importance / 3000 + 120));
+    const height = Math.max(60, Math.min(100, importance / 5000 + 60));
+    
+    const colors = getNodeColors(account.type, account.balance);
+    
+    return {
+      id: `node-${id}`,
+      name: account.name,
+      balance: account.balance,
+      type: account.type,
+      x,
+      y,
+      width,
+      height,
+      level,
+      color: colors.fill,
+      borderColor: colors.border
+    };
+  };
+
+  const nodes = createHierarchicalNodes();
+
+  // Create flow edges between nodes
+  const createEdges = (): Edge[] => {
+    const edges: Edge[] = [];
+    const revenueNodes = nodes.filter(n => n.type === 'revenue');
+    const assetNodes = nodes.filter(n => n.type === 'asset');
+    const expenseNodes = nodes.filter(n => n.type === 'expense' || n.type === 'tax');
+
+    // Revenue flows to assets
+    revenueNodes.forEach(revenue => {
+      assetNodes.forEach(asset => {
+        if (revenue.balance > 0) {
+          edges.push({
+            from: revenue,
+            to: asset,
+            amount: Math.abs(revenue.balance * 0.3), // Simplified flow calculation
+            color: 'hsl(142, 71%, 45%)' // Success green
+          });
+        }
+      });
+    });
+
+    // Assets flow to expenses
+    assetNodes.forEach(asset => {
+      expenseNodes.forEach(expense => {
+        if (expense.balance < 0) {
+          edges.push({
+            from: asset,
+            to: expense,
+            amount: Math.abs(expense.balance * 0.2),
+            color: expense.type === 'tax' ? 'hsl(0, 84%, 60%)' : 'hsl(38, 92%, 50%)' // Red for tax, orange for expense
+          });
+        }
+      });
+    });
+
+    return edges;
+  };
+
+  const edges = createEdges();
+
+  function getNodeColors(type: string, balance: number): { fill: string; border: string } {
+    switch (type) {
+      case 'revenue':
+        return {
+          fill: 'hsl(142, 71%, 45%)', // Success green
+          border: 'hsl(142, 71%, 35%)'
+        };
+      case 'asset':
+        return {
+          fill: balance >= 0 ? 'hsl(220, 85%, 60%)' : 'hsl(38, 92%, 50%)', // Professional blue or orange
+          border: balance >= 0 ? 'hsl(220, 85%, 45%)' : 'hsl(38, 92%, 35%)'
+        };
+      case 'expense':
+        return {
+          fill: 'hsl(38, 92%, 50%)', // Warning orange
+          border: 'hsl(38, 92%, 35%)'
+        };
+      case 'tax':
+        return {
+          fill: 'hsl(0, 84%, 60%)', // Danger red
+          border: 'hsl(0, 84%, 45%)'
+        };
+      default:
+        return {
+          fill: 'hsl(220, 85%, 60%)',
+          border: 'hsl(220, 85%, 45%)'
+        };
+    }
   }
 
   const drawGraph = () => {
@@ -56,7 +190,7 @@ export default function GraphVisualization({ accounts }: GraphVisualizationProps
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear canvas
+    // Clear canvas (let CSS gradient background show through)
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Apply transformations
@@ -65,48 +199,135 @@ export default function GraphVisualization({ accounts }: GraphVisualizationProps
     ctx.scale(scale, scale);
     ctx.translate(-canvas.width / 2, -canvas.height / 2);
 
-    // Draw connections between nodes
-    ctx.strokeStyle = '#e5e7eb';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < nodes.length - 1; i++) {
-      const startNode = nodes[i];
-      const endNode = nodes[i + 1];
-      
-      ctx.beginPath();
-      ctx.moveTo(startNode.x, startNode.y);
-      ctx.lineTo(endNode.x, endNode.y);
-      ctx.stroke();
-    }
+    // Draw edges with arrows first (behind nodes)
+    edges.forEach(edge => {
+      drawEdgeWithArrow(ctx, edge);
+    });
 
-    // Draw nodes
+    // Draw nodes with shadows and gradients
     nodes.forEach(node => {
-      // Draw node circle
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, node.radius, 0, 2 * Math.PI);
-      ctx.fillStyle = node.color;
-      ctx.fill();
-      
-      // Add border for selected node
-      if (selectedNode?.id === node.id) {
-        ctx.strokeStyle = '#1f2937';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      }
-      
-      // Draw node label
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '12px Inter';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(node.name.substring(0, 10), node.x, node.y - 5);
-      
-      // Draw balance
-      ctx.font = '10px JetBrains Mono';
-      const balanceText = `${Math.abs(node.balance).toLocaleString('fr-FR', { maximumFractionDigits: 0 })}€`;
-      ctx.fillText(balanceText, node.x, node.y + 8);
+      drawProfessionalNode(ctx, node);
     });
 
     ctx.restore();
+  };
+
+  const drawEdgeWithArrow = (ctx: CanvasRenderingContext2D, edge: Edge) => {
+    const { from, to } = edge;
+    
+    // Calculate connection points (edge of rectangles)
+    const fromBottom = { x: from.x, y: from.y + from.height / 2 };
+    const toTop = { x: to.x, y: to.y - to.height / 2 };
+    
+    // Curved path for better aesthetics
+    const midY = fromBottom.y + (toTop.y - fromBottom.y) / 2;
+    
+    // Draw the curved line
+    ctx.beginPath();
+    ctx.moveTo(fromBottom.x, fromBottom.y);
+    ctx.bezierCurveTo(
+      fromBottom.x, midY,
+      toTop.x, midY,
+      toTop.x, toTop.y
+    );
+    
+    // Style the line based on flow amount
+    ctx.strokeStyle = edge.color;
+    ctx.lineWidth = Math.max(2, Math.min(8, edge.amount / 10000));
+    ctx.stroke();
+    
+    // Draw arrowhead
+    const arrowSize = 12;
+    const angle = Math.atan2(toTop.y - midY, toTop.x - toTop.x);
+    
+    ctx.save();
+    ctx.translate(toTop.x, toTop.y);
+    ctx.rotate(angle + Math.PI / 2);
+    
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-arrowSize / 2, -arrowSize);
+    ctx.lineTo(arrowSize / 2, -arrowSize);
+    ctx.closePath();
+    
+    ctx.fillStyle = edge.color;
+    ctx.fill();
+    
+    ctx.restore();
+  };
+
+  const drawProfessionalNode = (ctx: CanvasRenderingContext2D, node: Node) => {
+    const x = node.x - node.width / 2;
+    const y = node.y - node.height / 2;
+    const radius = 12;
+
+    // Draw shadow
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 4;
+
+    // Draw main node rectangle with rounded corners
+    ctx.beginPath();
+    ctx.roundRect(x, y, node.width, node.height, radius);
+    
+    // Create gradient
+    const gradient = ctx.createLinearGradient(x, y, x, y + node.height);
+    gradient.addColorStop(0, node.color);
+    gradient.addColorStop(1, darkenColor(node.color, 0.1));
+    
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Draw border
+    ctx.strokeStyle = node.borderColor;
+    ctx.lineWidth = selectedNode?.id === node.id ? 3 : 2;
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Draw type indicator (small colored bar at top)
+    ctx.fillStyle = darkenColor(node.color, 0.2);
+    ctx.beginPath();
+    ctx.roundRect(x + 8, y + 8, node.width - 16, 4, 2);
+    ctx.fill();
+
+    // Draw node title
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 13px Inter';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    const titleY = y + node.height / 2 - 10;
+    const truncatedName = node.name.length > 15 ? node.name.substring(0, 15) + '...' : node.name;
+    ctx.fillText(truncatedName, node.x, titleY);
+    
+    // Draw balance with proper formatting
+    ctx.font = 'bold 11px JetBrains Mono';
+    const balanceText = `${Math.abs(node.balance).toLocaleString('fr-FR')} €`;
+    const balanceY = y + node.height / 2 + 8;
+    ctx.fillText(balanceText, node.x, balanceY);
+
+    // Draw type label
+    ctx.font = '9px Inter';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    const typeY = y + node.height / 2 + 22;
+    const typeLabels = { revenue: 'REVENUS', asset: 'ACTIFS', expense: 'CHARGES', tax: 'TAXES' };
+    ctx.fillText(typeLabels[node.type as keyof typeof typeLabels] || node.type.toUpperCase(), node.x, typeY);
+  };
+
+  // Utility function to darken colors
+  const darkenColor = (color: string, factor: number): string => {
+    if (color.startsWith('hsl(')) {
+      const matches = color.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+      if (matches) {
+        const [, h, s, l] = matches;
+        const newL = Math.max(0, parseInt(l) - factor * 100);
+        return `hsl(${h}, ${s}%, ${newL}%)`;
+      }
+    }
+    return color;
   };
 
   useEffect(() => {
@@ -121,12 +342,17 @@ export default function GraphVisualization({ accounts }: GraphVisualizationProps
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     
-    // Check if clicking on a node
+    // Check if clicking on a node (rectangular hit detection)
     const clickedNode = nodes.find(node => {
       const transformedX = (node.x - canvas.width / 2) * scale + canvas.width / 2 + offset.x;
       const transformedY = (node.y - canvas.height / 2) * scale + canvas.height / 2 + offset.y;
-      const distance = Math.sqrt((x - transformedX) ** 2 + (y - transformedY) ** 2);
-      return distance <= node.radius * scale;
+      const transformedWidth = node.width * scale;
+      const transformedHeight = node.height * scale;
+      
+      return x >= transformedX - transformedWidth / 2 &&
+             x <= transformedX + transformedWidth / 2 &&
+             y >= transformedY - transformedHeight / 2 &&
+             y <= transformedY + transformedHeight / 2;
     });
     
     if (clickedNode) {
@@ -222,9 +448,9 @@ export default function GraphVisualization({ accounts }: GraphVisualizationProps
       {/* Canvas */}
       <canvas
         ref={canvasRef}
-        width={600}
-        height={400}
-        className="w-full h-96 border rounded-md cursor-move"
+        width={800}
+        height={500}
+        className="w-full h-[500px] bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 cursor-move"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
