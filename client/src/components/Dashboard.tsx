@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,14 +14,10 @@ import {
   RotateCcw,
   LogOut
 } from "lucide-react";
-import GraphVisualization from "./GraphVisualization";
+import GraphVisualization from "@/components/GraphVisualization";
 
-interface Company {
-  name: string;
-  legalForm: string;
-  activity: string;
-  capital: number;
-}
+// Import Company type from shared schema
+import type { Company } from "@shared/schema";
 
 interface AccountBalance {
   name: string;
@@ -35,14 +32,15 @@ interface SimulationState {
 }
 
 export default function Dashboard() {
-  // todo: remove mock functionality
-  const [company] = useState<Company>({
-    name: "SARL TechInnovation",
-    legalForm: "SARL", 
-    activity: "Services informatiques",
-    capital: 50000
+  // Load user's companies
+  const { data: companies, isLoading: companiesLoading } = useQuery<Company[]>({
+    queryKey: ['/api/companies'],
   });
 
+  // Use first company as default or show company selection
+  const company = companies?.[0];
+
+  // todo: remove mock functionality - replace with real account data from simulation
   const [accounts] = useState<AccountBalance[]>([
     { name: "Compte Courant", balance: 125400, type: 'asset' },
     { name: "Chiffre d'Affaires", balance: 240000, type: 'revenue' },
@@ -50,6 +48,30 @@ export default function Dashboard() {
     { name: "TVA à Payer", balance: -12800, type: 'tax' },
     { name: "Frais Généraux", balance: -28400, type: 'expense' },
   ]);
+
+  if (companiesLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-pulse text-muted-foreground">Chargement de vos entreprises...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!company) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <h2 className="text-2xl font-bold">Aucune entreprise configurée</h2>
+          <p className="text-muted-foreground">Commencez par créer votre première entreprise</p>
+          <Button onClick={() => window.location.href = '/setup'} data-testid="button-create-company">
+            Créer une entreprise
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const [simulation, setSimulation] = useState<SimulationState>({
     isRunning: false,
@@ -122,7 +144,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Activité</p>
-                <p className="font-medium" data-testid="text-activity">{company.activity}</p>
+                <p className="font-medium" data-testid="text-activity">{company.activitySector}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Capital</p>

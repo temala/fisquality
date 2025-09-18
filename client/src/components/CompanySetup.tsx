@@ -7,6 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ArrowLeft, ArrowRight, CheckCircle } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface CompanyFormData {
   name: string;
@@ -71,9 +75,45 @@ export default function CompanySetup() {
     }
   };
 
+  const { toast } = useToast();
+
+  const createCompanyMutation = useMutation({
+    mutationFn: async (companyData: CompanyFormData) => {
+      return await apiRequest('POST', '/api/companies', {
+        name: companyData.name,
+        legalForm: companyData.legalForm,
+        activitySector: companyData.activity,
+        capital: companyData.capital,
+        bankPartner: companyData.bank,
+      });
+    },
+    onSuccess: () => {
+      // Invalidate companies cache
+      queryClient.invalidateQueries({ queryKey: ['/api/companies'] });
+      
+      toast({
+        title: "Entreprise créée !",
+        description: "Votre entreprise a été configurée avec succès.",
+      });
+      
+      // Redirect to dashboard after short delay
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1500);
+    },
+    onError: (error) => {
+      console.error('Error creating company:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de créer l'entreprise. Veuillez réessayer.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleComplete = () => {
     console.log('Company setup completed:', formData);
-    // todo: remove mock functionality - replace with actual form submission
+    createCompanyMutation.mutate(formData);
   };
 
   const updateFormData = (field: keyof CompanyFormData, value: string | number) => {
