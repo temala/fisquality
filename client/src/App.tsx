@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import Landing from "@/components/Landing";
 import Dashboard from "@/components/Dashboard";
 import CompanySetup from "@/components/CompanySetup";
+import Patterns from "@/pages/Patterns";
 import NotFound from "@/pages/not-found";
 import MobileNavigation from "@/components/MobileNavigation";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -32,6 +33,7 @@ function Router() {
         <>
           <Route path="/" component={Dashboard} />
           <Route path="/setup" component={CompanySetup} />
+          <Route path="/patterns" component={Patterns} />
         </>
       )}
       <Route component={NotFound} />
