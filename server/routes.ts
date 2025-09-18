@@ -317,10 +317,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { generateFinancialReport } = await import('./summarizer');
 
         // Get patterns for the company
+        console.log(`🔍 Fetching patterns for company ID: ${companyId}`);
         const [revenuePatterns, expensePatterns] = await Promise.all([
           storage.getRevenuePatterns(companyId),
           storage.getExpensePatterns(companyId),
         ]);
+        console.log(`📋 Found ${revenuePatterns.length} revenue patterns and ${expensePatterns.length} expense patterns`);
+        if (revenuePatterns.length > 0) {
+          console.log('📋 Revenue patterns:', revenuePatterns.map(p => ({name: p.name, amount: p.amount, frequency: p.frequency})));
+        }
+        if (expensePatterns.length > 0) {
+          console.log('📋 Expense patterns:', expensePatterns.map(p => ({name: p.name, amount: p.amount, frequency: p.frequency})));
+        }
 
         // Validate simulation inputs
         if (!simulationData.inputs) {

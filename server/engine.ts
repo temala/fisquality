@@ -723,12 +723,20 @@ export async function runSimulation(
     // Step 1: Expand all patterns into occurrences
     await emitProgress(1, 10); // 10% - Pattern expansion
     
+    console.log(`📊 Expanding patterns for company ${company.name}:`);
+    console.log(`   Revenue patterns: ${revenuePatterns.length}`);
+    console.log(`   Expense patterns: ${expensePatterns.length}`);
+    revenuePatterns.forEach(p => console.log(`   - Revenue: ${p.name} €${p.amount} ${p.frequency}`));
+    expensePatterns.forEach(p => console.log(`   - Expense: ${p.name} €${p.amount} ${p.frequency}`));
+    
     const occurrences = expandAllPatterns(
       revenuePatterns,
       expensePatterns,
       company,
       inputs.year
     );
+    
+    console.log(`📈 Generated ${occurrences.length} occurrences for year ${inputs.year}`);
     
     // Step 2: Initialize account balances with starting balances
     await emitProgress(1, 20); // 20% - Account initialization

@@ -363,28 +363,42 @@ export function expandPattern(
   company: Company,
   year: number
 ): Occurrence[] {
+  console.log(`🔧 Expanding pattern: ${pattern.name || 'unnamed'} (${pattern.frequency}) for year ${year}`);
+  
   // Pre-calculate holidays for the year using company's holiday region
   const holidayRegion = company.holidayRegion || 'FR';
   const holidays = getFrenchHolidays(year, holidayRegion);
   
+  let occurrences: Occurrence[] = [];
+  
   // Expand based on frequency
   switch (pattern.frequency) {
     case 'daily':
-      return expandDailyPattern(pattern, company, year, holidays);
+      occurrences = expandDailyPattern(pattern, company, year, holidays);
+      console.log(`   📅 Daily pattern generated ${occurrences.length} occurrences`);
+      break;
       
     case 'monthly':
-      return expandMonthlyPattern(pattern, company, year);
+      occurrences = expandMonthlyPattern(pattern, company, year);
+      console.log(`   📅 Monthly pattern generated ${occurrences.length} occurrences`);
+      break;
       
     case 'quarterly':
-      return expandQuarterlyPattern(pattern, company, year);
+      occurrences = expandQuarterlyPattern(pattern, company, year);
+      console.log(`   📅 Quarterly pattern generated ${occurrences.length} occurrences`);
+      break;
       
     case 'yearly':
-      return expandYearlyPattern(pattern, company, year);
+      occurrences = expandYearlyPattern(pattern, company, year);
+      console.log(`   📅 Yearly pattern generated ${occurrences.length} occurrences`);
+      break;
       
     default:
       console.warn(`Unknown frequency: ${pattern.frequency}`);
-      return [];
+      occurrences = [];
   }
+  
+  return occurrences;
 }
 
 /**
